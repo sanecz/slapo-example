@@ -22,14 +22,20 @@
 #include "slap.h"
 #include "config.h"
 
+typedef struct example_data {
+  char *principalattr;
+  char *exampledomain;
+} example_data;
+
+
 static ConfigTable examplecfg[] = {
   { "ExampleDomain", "arg", 2, 2, 0,
-    ARG_STRING|ARG_OFFSET, NULL,
+    ARG_STRING|ARG_OFFSET, (void *)offsetof(example_data, principalattr),
     "( OLcfgCtAt:24.1 NAME 'ExampleDomain' "
     "DESC 'Example domain' "
     "SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL},
   { "PrincipalAttr", "arg", 2, 2, 0,
-    ARG_STRING|ARG_OFFSET, NULL,
+    ARG_STRING|ARG_OFFSET, (void *)offsetof(example_data, exampledomain),
     "( OLcfgCtAt:24.2 NAME 'PrincipalAttr' "
     "DESC 'Principal Attr' "
     "SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
@@ -50,11 +56,17 @@ static slap_overinst example;
 
 static int example_init(BackendDB *be, ConfigReply *cr) {
   printf("EXAMPLE| start success\n");
-  return 0;
+  slap_overinst *on = (slap_overinst *)be->bd_info;
+  example_data *ex = ch_calloc(1, sizeof(example_data));
+  on->on_bi.bi_private = ex;
+  return LDAP_SUCCESS;
 }
 
-/* static int example_destroy(BackendDB *be, ConfigReply *cr) {
+static int example_destroy(BackendDB *be, ConfigReply *cr) {
   printf("EXAMPLE| end success\n");
+  slap_overinst *on = (slap_overinst *)be->bd_info;
+  example_data *ex = on->on_bi.bi_private;
+  free(ex);
   return LDAP_SUCCESS;
 }
 
@@ -62,11 +74,16 @@ static int example_delete(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
   return SLAP_CB_CONTINUE;
 }
-*/
 
 static int example_add(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
   printf("EXAMPLE| used added\n");
+  return SLAP_CB_CONTINUE;
+}
+
+static int example_response() {
+  slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
+  example_data *ex = on->on_bi.bi_private;
   return SLAP_CB_CONTINUE;
 }
 
@@ -75,9 +92,10 @@ int example_initialize() {
 
   example.on_bi.bi_type = "example";
   example.on_bi.bi_db_init = example_init;
-// example.on_bi.bi_db_destroy = example_destroy;
-//  example.on_bi.bi_op_delete = example_delete;
+  example.on_bi.bi_db_destroy = example_destroy;
+  example.on_bi.bi_op_delete = example_delete;
   example.on_bi.bi_op_add = example_add;
+  example.on_response = example_response;
 
   rc = config_register_schema(examplecfg, exampleocs);
   if (rc) {

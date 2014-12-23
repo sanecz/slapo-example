@@ -1,10 +1,10 @@
 #dn: cn=module,cn=config
 #objectClass: olcModuleList
 #cn: module
-#olcModulePath: /root/overlay/.libs/
+#olcModulePath: /home/qolecz/work/slapo-example/.libs
 #olcModuleLoad: example.so
 
-dn: olcOverlay=example,olcDatabase={-1}frontend,cn=config
+dn: olcOverlay={0}example,olcDatabase={-1}frontend,cn=config
 objectClass: olcOverlayConfig
 objectclass: olcExampleConfig
 olcOverlay: example
