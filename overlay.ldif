@@ -1,0 +1,9 @@
+dn: cn=module,cn=config
+objectClass: olcModuleList
+cn: module
+olcModulePath: /root/overlay/.libs/
+olcModuleLoad: example.so
+
+dn: olcOverlay=example,olcDatabase={-1}frontend,cn=config
+objectClass: olcOverlayConfig
+olcOverlay: example
