@@ -67,6 +67,7 @@ static int example_destroy(BackendDB *be, ConfigReply *cr) {
   slap_overinst *on = (slap_overinst *)be->bd_info;
   example_data *ex = on->on_bi.bi_private;
   free(ex);
+  free(on);
   return LDAP_SUCCESS;
 }
 
@@ -84,6 +85,11 @@ static int example_add(Operation *op, SlapReply *rs) {
 static int example_response(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
   example_data *ex = on->on_bi.bi_private;
+
+  if (!ex->exampledomain) {
+    return SLAP_CB_CONTINUE;
+  }
+  printf("%s %s\n", ex->exampledomain, ex->principalattr);
   return SLAP_CB_CONTINUE;
 }
 
