@@ -67,7 +67,6 @@ static int example_destroy(BackendDB *be, ConfigReply *cr) {
   slap_overinst *on = (slap_overinst *)be->bd_info;
   example_data *ex = on->on_bi.bi_private;
   free(ex);
-  free(on);
   return LDAP_SUCCESS;
 }
 
@@ -86,9 +85,23 @@ static int example_add(Operation *op, SlapReply *rs) {
 static int example_response(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
   example_data *ex = on->on_bi.bi_private;
+  Attribute *a;
 
   if (rs->sr_err != LDAP_SUCCESS) return SLAP_CB_CONTINUE;
   if (!ex->exampledomain | !ex->principalattr) return SLAP_CB_CONTINUE;
+  switch(op->o_tag) {
+  case LDAP_REQ_MODRDN: printf("ldap req modrdn case\n"); break;
+  case LDAP_REQ_DELETE: printf("ldap req delete case\n"); break;
+  case LDAP_REQ_MODIFY: printf("ldap req modify case\n"); break;
+  case LDAP_REQ_ADD:
+    printf("ldap req add case\n");
+    for(a = op->ora_e->e_attrs; a; a = a->a_next) {
+      printf("%s\n", a->a_desc->ad_cname.bv_val);
+    }
+    break;
+  default:
+    printf("default case\n");
+  }
   return SLAP_CB_CONTINUE;
 }
 
