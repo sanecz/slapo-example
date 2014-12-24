@@ -55,18 +55,20 @@ static ConfigOCs exampleocs[] = {
 static slap_overinst example;
 
 static int example_init(BackendDB *be, ConfigReply *cr) {
-  printf("EXAMPLE| start success\n");
   slap_overinst *on = (slap_overinst *)be->bd_info;
   example_data *ex = ch_calloc(1, sizeof(example_data));
+
   on->on_bi.bi_private = ex;
+  printf("EXAMPLE| start success\n");
   return LDAP_SUCCESS;
 }
 
 static int example_destroy(BackendDB *be, ConfigReply *cr) {
-  printf("EXAMPLE| end success\n");
   slap_overinst *on = (slap_overinst *)be->bd_info;
   example_data *ex = on->on_bi.bi_private;
+
   free(ex);
+  printf("EXAMPLE| end success\n");
   return LDAP_SUCCESS;
 }
 
@@ -96,7 +98,7 @@ static int example_response(Operation *op, SlapReply *rs) {
   case LDAP_REQ_ADD:
     printf("ldap req add case\n");
     for(a = op->ora_e->e_attrs; a; a = a->a_next) {
-      printf("%s\n", a->a_desc->ad_cname.bv_val);
+      printf("%s: %s\n", a->a_desc->ad_cname.bv_val, a->a_vals->bv_val);
     }
     break;
   default:
