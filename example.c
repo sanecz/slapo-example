@@ -86,9 +86,8 @@ static int example_response(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
   example_data *ex = on->on_bi.bi_private;
 
-  if (!ex->exampledomain) {
-    return SLAP_CB_CONTINUE;
-  }
+  if (rs->sr_err != LDAP_SUCCESS) return SLAP_CB_CONTINUE;
+  if (!ex->exampledomain | !ex->principalattr) return SLAP_CB_CONTINUE;
   printf("%s %s\n", ex->exampledomain, ex->principalattr);
   return SLAP_CB_CONTINUE;
 }
@@ -104,10 +103,8 @@ int example_initialize() {
   example.on_response = example_response;
 
   rc = config_register_schema(examplecfg, exampleocs);
-  if (rc) {
-    printf("EXAMPLE| schema registered\n");
-    return rc;
-  }
+  if (rc) return rc;
+
   return overlay_register(&example);
 }
 
