@@ -73,12 +73,13 @@ static int example_destroy(BackendDB *be, ConfigReply *cr) {
 
 static int example_delete(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
+
   return SLAP_CB_CONTINUE;
 }
 
 static int example_add(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
-  printf("EXAMPLE| used added\n");
+
   return SLAP_CB_CONTINUE;
 }
 
@@ -88,7 +89,6 @@ static int example_response(Operation *op, SlapReply *rs) {
 
   if (rs->sr_err != LDAP_SUCCESS) return SLAP_CB_CONTINUE;
   if (!ex->exampledomain | !ex->principalattr) return SLAP_CB_CONTINUE;
-  printf("%s %s\n", ex->exampledomain, ex->principalattr);
   return SLAP_CB_CONTINUE;
 }
 
