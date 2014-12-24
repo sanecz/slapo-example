@@ -81,7 +81,7 @@ static int example_add(Operation *op, SlapReply *rs) {
   return SLAP_CB_CONTINUE;
 }
 
-static int example_response() {
+static int example_response(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
   example_data *ex = on->on_bi.bi_private;
   return SLAP_CB_CONTINUE;
