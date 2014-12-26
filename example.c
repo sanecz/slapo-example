@@ -14,22 +14,12 @@
  * <http://www.OpenLDAP.org/license.html>.
  */
 
-
-/* Howtos
- *
- * Sending error:
- * op->o_bd->bd_info = (BackendInfo *)(on->on_info);
- * send_ldap_error(op, rs, LDAP_INVALID_SYNTAX,
- *   "text test error example_response()");
- *  return(rs->sr_err);
- *
- */
-
 #include "portable.h"
 
 #ifdef SLAPD_OVER_EXAMPLE
 
 #include <stdio.h>
+#include <string.h>
 #include "slap.h"
 #include "config.h"
 
@@ -79,7 +69,7 @@ static int example_destroy(BackendDB *be, ConfigReply *cr) {
   example_data *ex = on->on_bi.bi_private;
 
   free(ex);
-  printf("EXAMPLE| end success\n");
+
   return LDAP_SUCCESS;
 }
 
@@ -95,40 +85,64 @@ static int example_add(Operation *op, SlapReply *rs) {
   return SLAP_CB_CONTINUE;
 }
 
-static int example_search(Operation *op,
-			  Operation *nop,
-			  SlapReply *rs,
-			  struct berval *bvkey) {
+static int example_callback(Operation *op, SlapReply *rs) {
+  example_data* ex = op->o_callback->sc_private;
+  Entry *entry = NULL;
+
+  if (rs->sr_type != REP_SEARCH) return 0;
+
+  if (rs->sr_entry) {
+    entry = rs->sr_entry;
+    Attribute *attr = NULL;
+    for (attr = entry->e_attrs; attr; attr = attr->a_next) {
+      if (!strcmp( attr->a_desc->ad_cname.bv_val, ex->principalattr)){
+	if (attr->a_numvals > 0)  {
+	  char *tmp = attr->a_vals[0].bv_val;
+	  printf("%s: %s\n", example.on_bi.bi_type, tmp);
+	}
+      }
+    }
+  }
+
+  return SLAP_CB_CONTINUE;
+}
+
+static int example_search(Operation *op) {
+  slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
+  example_data *ex = on->on_bi.bi_private;
+  Operation nop = *op;
+  slap_callback cb = { NULL, example_callback, NULL, NULL, ex};
   SlapReply nrs = { REP_RESULT };
-  slap_overinst *on = (slap_overinst *) op->o_bd->bd_info;
   int rc;
+  Filter *filter = NULL;
+  struct berval fstr = BER_BVNULL;
+  char *buffer;
+  size_t len;
 
-  nop->ors_filter = str2filter_x(nop, bvkey->bv_val);
-  if(nop->ors_filter == NULL) {
-    op->o_bd->bd_info = (BackendInfo *) on->on_info;
-    send_ldap_error(op, rs, LDAP_OTHER,
-		    "invalid filter");
-    return(rs->sr_err);
-  }
-  nop->ors_filterstr = *bvkey;
-  nop->o_tag = LDAP_REQ_SEARCH;
-  nop->ors_scope = LDAP_SCOPE_BASE;
-  nop->ors_deref = LDAP_DEREF_NEVER;
-  nop->ors_limit = NULL;
-  nop->ors_slimit = SLAP_NO_LIMIT;
-  nop->ors_tlimit = SLAP_NO_LIMIT;
-  nop->ors_attrsonly = 1;
-  nop->ors_attrs  = slap_anlist_no_attrs;
+  len = strlen(ex->principalattr) + 5;
+  buffer = (char *)malloc(sizeof(char) * len);
+  snprintf(buffer, len, "(%s=*)", ex->principalattr) ;
+  filter = str2filter(buffer);
+  filter2bv(filter, &fstr);
 
-  nop->o_bd = on->on_info->oi_origdb;
-  rc = nop->o_bd->be_search(nop, &nrs);
-  filter_free_x(nop, nop->ors_filter, 1);
-  op->o_tmpfree(bvkey->bv_val, op->o_tmpmemctx);
-  if(rc != LDAP_SUCCESS && rc != LDAP_NO_SUCH_OBJECT) {
-    op->o_bd->bd_info = (BackendInfo *) on->on_info;
-    send_ldap_error(op, rs, rc, "failed");
-    return(rs->sr_err);
-  }
+  nop.o_callback = &cb;
+  op->o_bd->bd_info = (BackendInfo *) on->on_info;
+  nop.o_tag = LDAP_REQ_SEARCH;
+  nop.o_ctrls = NULL;
+  nop.ors_scope = LDAP_SCOPE_SUBTREE;
+  nop.ors_deref = LDAP_DEREF_NEVER;
+  nop.ors_slimit = SLAP_NO_LIMIT;
+  nop.ors_tlimit = SLAP_NO_LIMIT;
+  nop.ors_attrsonly = 1;
+  nop.ors_attrs = slap_anlist_no_attrs;
+  nop.ors_filter = filter;
+  nop.ors_filterstr = fstr;
+
+  if (nop.o_bd->be_search) rc = nop.o_bd->be_search( &nop, &nrs );
+  if (buffer) free(buffer);
+  if (filter) filter_free(filter);
+  if (fstr.bv_val) ch_free(fstr.bv_val);
+
   return SLAP_CB_CONTINUE;
 }
 
@@ -138,30 +152,21 @@ static int example_response(Operation *op, SlapReply *rs) {
   Attribute *a;
 
   if (rs->sr_err != LDAP_SUCCESS) return SLAP_CB_CONTINUE;
+
   if (!ex->exampledomain | !ex->principalattr) return SLAP_CB_CONTINUE;
   switch(op->o_tag) {
   case LDAP_REQ_MODRDN: printf("ldap req modrdn case\n"); break;
   case LDAP_REQ_DELETE: printf("ldap req delete case\n"); break;
   case LDAP_REQ_MODIFY: printf("ldap req modify case\n"); break;
   case LDAP_REQ_ADD:
-    printf("ldap req add case\n");
-    for(a = op->ora_e->e_attrs; a; a = a->a_next) {
-      if (!strcmp(a->a_desc->ad_cname.bv_val, ex->principalattr)) {
-	Operation nop = *op;
-	struct berval bvkey;
-
-	bvkey.bv_val = strdup("cn=test1");
-	bvkey.bv_len = (ber_len_t)strlen(bvkey.bv_val);
-	if (example_search(op, &nop, rs, &bvkey) != SLAP_CB_CONTINUE) {
-	  printf("4\n");
-	  return (rs->sr_err);
-	}
-      }
-    }
+    for (a = op->ora_e->e_attrs; a; a = a->a_next)
+      if (!strcmp( a->a_desc->ad_cname.bv_val, ex->principalattr))
+	example_search(op);
     break;
   default:
     printf("default case\n");
   }
+
   return SLAP_CB_CONTINUE;
 }
 
