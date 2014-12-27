@@ -19,6 +19,7 @@
 #ifdef SLAPD_OVER_EXAMPLE
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "slap.h"
 #include "config.h"
@@ -58,6 +59,8 @@ static slap_overinst example;
 static int example_init(BackendDB *be, ConfigReply *cr) {
   slap_overinst *on = (slap_overinst *)be->bd_info;
   example_data *ex = ch_calloc(1, sizeof(example_data));
+  (void)be;
+  (void)cr;
 
   on->on_bi.bi_private = ex;
   printf("EXAMPLE| start success\n");
@@ -67,6 +70,8 @@ static int example_init(BackendDB *be, ConfigReply *cr) {
 static int example_destroy(BackendDB *be, ConfigReply *cr) {
   slap_overinst *on = (slap_overinst *)be->bd_info;
   example_data *ex = on->on_bi.bi_private;
+  (void)be;
+  (void)cr;
 
   free(ex);
 
@@ -75,12 +80,16 @@ static int example_destroy(BackendDB *be, ConfigReply *cr) {
 
 static int example_delete(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
+  (void)op;
+  (void)rs;
 
   return SLAP_CB_CONTINUE;
 }
 
 static int example_add(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
+  (void)op;
+  (void)rs;
 
   return SLAP_CB_CONTINUE;
 }
@@ -120,7 +129,12 @@ static int example_search(Operation *op) {
   size_t len;
 
   len = strlen(ex->principalattr) + 5;
-  buffer = (char *)malloc(sizeof(char) * len);
+  if (!(buffer = (char *)malloc(sizeof(char) * len))) {
+    nop.o_bd->bd_info = (BackendInfo *)(on->on_info);
+    send_ldap_error(&nop, &nrs, LDAP_OTHER,
+		    "Cannot allocate memory in example_search()");
+    return(nrs.sr_err);
+  }
   snprintf(buffer, len, "(%s=*)", ex->principalattr) ;
   filter = str2filter(buffer);
   filter2bv(filter, &fstr);
@@ -189,6 +203,8 @@ int example_initialize() {
 #if SLAPD_OVER_EXAMPLE == SLAPD_MOD_DYNAMIC
 
 int init_module(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
   return example_initialize();
 }
 #endif
