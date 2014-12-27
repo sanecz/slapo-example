@@ -129,11 +129,12 @@ static int example_search(Operation *op) {
   size_t len;
 
   len = strlen(ex->principalattr) + 5;
-  if (!(buffer = (char *)malloc(sizeof(char) * len))) {
+  buffer = (char *)malloc(sizeof(char) * len);
+  if (!buffer) {
     nop.o_bd->bd_info = (BackendInfo *)(on->on_info);
     send_ldap_error(&nop, &nrs, LDAP_OTHER,
 		    "Cannot allocate memory in example_search()");
-    return(nrs.sr_err);
+    return nrs.sr_err;
   }
   snprintf(buffer, len, "(%s=*)", ex->principalattr) ;
   filter = str2filter(buffer);
