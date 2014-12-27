@@ -55,6 +55,7 @@ static ConfigOCs exampleocs[] = {
 };
 
 static slap_overinst example;
+static ObjectClass *oc_kerberos;
 
 static int example_init(BackendDB *be, ConfigReply *cr) {
   slap_overinst *on = (slap_overinst *)be->bd_info;
@@ -153,8 +154,8 @@ static int example_search(Operation *op) {
   nop.ors_filter = filter;
   nop.ors_filterstr = fstr;
 
-  if (nop.o_bd->be_search) rc = nop.o_bd->be_search( &nop, &nrs );
-  if (buffer) free(buffer);
+  if (nop.o_bd->be_search) rc = nop.o_bd->be_search(&nop, &nrs);
+  free(buffer);
   if (filter) filter_free(filter);
   if (fstr.bv_val) ch_free(fstr.bv_val);
 
@@ -185,11 +186,20 @@ static int example_response(Operation *op, SlapReply *rs) {
   return SLAP_CB_CONTINUE;
 }
 
+static int example_open() {
+
+  oc_kerberos = oc_find("krbPrincipal");
+  if (!oc_kerberos) return -1;
+
+  return 0;
+}
+
 int example_initialize() {
   int rc;
 
   example.on_bi.bi_type = "example";
   example.on_bi.bi_db_init = example_init;
+  example.on_bi.bi_db_open = example_open;
   example.on_bi.bi_db_destroy = example_destroy;
   example.on_bi.bi_op_delete = example_delete;
   example.on_bi.bi_op_add = example_add;
