@@ -18,15 +18,22 @@
 
 #ifdef SLAPD_OVER_EXAMPLE
 
+#include <krb5.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "slap.h"
 #include "config.h"
 
+#define DEFAULT_KEYTAB_PATH "/etc/krb5.keytab"
+
 typedef struct example_data {
   char *principalattr;
   char *exampledomain;
+  krb5_context context;
+  char *addr;
+  char *keytabpath;
+  ldap_pvt_thread_mutex_t examplemutex;
 } example_data;
 
 
@@ -41,6 +48,16 @@ static ConfigTable examplecfg[] = {
     "( OLcfgCtAt:24.2 NAME 'PrincipalAttr' "
     "DESC 'Principal Attr' "
     "SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
+  { "ExampleHost", "arg", 2, 2, 0,
+    ARG_STRING|ARG_OFFSET, (void *)offsetof(example_data, addr),
+    "( OLcfgCtAt:24.3 NAME 'ExampleHost' "
+    "DESC 'Hostname or IP address' "
+    "SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL},
+  { "KeytabPath", "arg", 2, 2, 0,
+    ARG_STRING|ARG_OFFSET, (void *)offsetof(example_data, keytabpath),
+    "( OLcfgCtAt:24.4 NAME 'KeytabPath' "
+    "DESC 'Path of the keytab' "
+    "SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL},
   { NULL, NULL, 0, 0, 0, ARG_IGNORED }
 };
 
@@ -49,47 +66,58 @@ static ConfigOCs exampleocs[] = {
     "NAME 'olcExampleConfig' "
     "DESC 'Example overlay' "
     "SUP olcOverlayConfig "
-    "MUST ( ExampleDomain $ PrincipalAttr ) )",
+    "MAY ( KeytabPath ) "
+    "MUST ( ExampleDomain $ PrincipalAttr $ ExampleHost ) ) ",
     Cft_Overlay, examplecfg},
   {NULL, 0, NULL}
 };
 
 static slap_overinst example;
-static ObjectClass *oc_kerberos;
 
 static int example_init(BackendDB *be, ConfigReply *cr) {
   slap_overinst *on = (slap_overinst *)be->bd_info;
   example_data *ex = ch_calloc(1, sizeof(example_data));
-  (void)be;
   (void)cr;
 
   on->on_bi.bi_private = ex;
-  printf("EXAMPLE| start success\n");
   return LDAP_SUCCESS;
+}
+
+static int example_open(BackendDB *be, ConfigReply *cr) {
+  slap_overinst *on = (slap_overinst *)be->bd_info;
+  example_data *ex = on->on_bi.bi_private;
+  ObjectClass *oc_kerberos;
+  
+  ldap_pvt_thread_mutex_init(&ex->examplemutex);
+  //  if (krb5_init_context(&ex->context)) return -1;
+
+  oc_kerberos = oc_find("krbPrincipal");
+  if (!oc_kerberos) return -1;
+
+  if (!ex->keytabpath) ex->keytabpath = DEFAULT_KEYTAB_PATH;
+
+  return 0;
 }
 
 static int example_destroy(BackendDB *be, ConfigReply *cr) {
   slap_overinst *on = (slap_overinst *)be->bd_info;
   example_data *ex = on->on_bi.bi_private;
-  (void)be;
   (void)cr;
 
+  ldap_pvt_thread_mutex_destroy(&ex->examplemutex);
   free(ex);
-
   return LDAP_SUCCESS;
 }
 
 static int example_delete(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
-  (void)op;
   (void)rs;
-
+  
   return SLAP_CB_CONTINUE;
 }
 
 static int example_add(Operation *op, SlapReply *rs) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
-  (void)op;
   (void)rs;
 
   return SLAP_CB_CONTINUE;
@@ -105,7 +133,7 @@ static int example_callback(Operation *op, SlapReply *rs) {
     entry = rs->sr_entry;
     Attribute *attr = NULL;
     for (attr = entry->e_attrs; attr; attr = attr->a_next) {
-      if (!strcmp( attr->a_desc->ad_cname.bv_val, ex->principalattr)){
+      if (!strcmp(attr->a_desc->ad_cname.bv_val, ex->principalattr)){
 	if (attr->a_numvals > 0)  {
 	  char *tmp = attr->a_vals[0].bv_val;
 	  printf("%s: %s\n", example.on_bi.bi_type, tmp);
@@ -117,7 +145,7 @@ static int example_callback(Operation *op, SlapReply *rs) {
   return SLAP_CB_CONTINUE;
 }
 
-static int example_search(Operation *op) {
+static int example_search(Operation *op, char *attrcontent) {
   slap_overinst *on = (slap_overinst *)op->o_bd->bd_info;
   example_data *ex = on->on_bi.bi_private;
   Operation nop = *op;
@@ -137,7 +165,7 @@ static int example_search(Operation *op) {
 		    "Cannot allocate memory in example_search()");
     return nrs.sr_err;
   }
-  snprintf(buffer, len, "(%s=*)", ex->principalattr) ;
+  snprintf(buffer, len, "(krbPrincipalName=%s@%s)", attrcontent, ex->exampledomain) ;
   filter = str2filter(buffer);
   filter2bv(filter, &fstr);
 
@@ -170,28 +198,22 @@ static int example_response(Operation *op, SlapReply *rs) {
   if (rs->sr_err != LDAP_SUCCESS) return SLAP_CB_CONTINUE;
 
   if (!ex->exampledomain | !ex->principalattr) return SLAP_CB_CONTINUE;
+
   switch(op->o_tag) {
   case LDAP_REQ_MODRDN: printf("ldap req modrdn case\n"); break;
   case LDAP_REQ_DELETE: printf("ldap req delete case\n"); break;
   case LDAP_REQ_MODIFY: printf("ldap req modify case\n"); break;
   case LDAP_REQ_ADD:
     for (a = op->ora_e->e_attrs; a; a = a->a_next)
-      if (!strcmp( a->a_desc->ad_cname.bv_val, ex->principalattr))
-	example_search(op);
+      if (!strcmp(a->a_desc->ad_cname.bv_val, ex->principalattr))
+	printf("%s\n", a->a_vals[0].bv_val);
+	example_search(op, a->a_vals[0].bv_val);
     break;
   default:
     printf("default case\n");
   }
 
   return SLAP_CB_CONTINUE;
-}
-
-static int example_open() {
-
-  oc_kerberos = oc_find("krbPrincipal");
-  if (!oc_kerberos) return -1;
-
-  return 0;
 }
 
 int example_initialize() {
