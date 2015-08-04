@@ -1,93 +1,120 @@
-#include <string.h>
-#include <krb5.h>
 #include <kadm5/admin.h>
+#include <krb5.h>
+#include <string.h>
 
-#define KEYTAB_DEFAULT_PATH "/etc/admin.keytab" 
-
-void *handle = NULL;
-krb5_context context;
-char *ccache_name = NULL;
-char *def_realm = NULL;
-char *whoami = "example";
-char *keytab_name = KEYTAB_DEFAULT_PATH;
-
-int init() {
+int init(krb5_context *context, void **handle,
+	 char *keytab_name, char *princstr,
+	 char *def_realm) {
   kadm5_ret_t retval;
-  krb5_ccache cc;
-  krb5_principal princ;
-  char *princstr = NULL;
+  krb5_principal princ = NULL;
   kadm5_config_params params;
-
+  char **db_args = NULL;
+  int err = 0;
+  
   memset(&params, 0, sizeof(params));
-
-  params.admin_server = "172.16.2.227:88";
-  params.mask |= KADM5_CONFIG_ADMIN_SERVER;
-
-  if ((retval = kadm5_init_krb5_context(&context))) {
-    com_err(whoami, retval, "while initializing krb5 library", whoami);
-    goto cleanup;
-  }
-
-  if ((retval = krb5_get_default_realm(context, &def_realm))) {
-    fprintf(stderr, "%s: unable to get default realm\n", whoami);
-    goto cleanup;
-  }
-
   params.mask |= KADM5_CONFIG_REALM;
   params.realm = def_realm;
-  
-  if ((retval = krb5_cc_default(context, &cc))) {
-    com_err(whoami, retval, "while opening default credentials cache");
+
+  retval = kadm5_init_krb5_context(context);
+  if (retval) {
+    err = -1;
+    com_err("kadm5_init_krb5_context()", retval, ".");
+    goto cleanup;
+  }
+  retval = kadm5_init_with_skey(*context, princstr, keytab_name,
+				NULL, &params,
+				KADM5_STRUCT_VERSION,
+				KADM5_API_VERSION_4,
+				db_args,
+				handle);
+  if (retval) {
+    err = -1;
+    com_err("kadm5_init_with_skey()", retval, ".");
     goto cleanup;
   }
 
-  if ((retval = krb5_cc_get_principal(context, cc, &princ))) {
-    com_err(whoami, retval, "while retrieving principal name");
-    goto cc_cleanup;
-  }
+ cleanup:
+  krb5_free_principal(*context, princ);
+  return err;
+}
 
-  if ((retval = krb5_unparse_name(context, princ, &princstr))) {
-    com_err(whoami, retval, "while canonicalizing principal name");
-    goto princ_cleanup;
-  }
 
-  retval = kadm5_init_with_skey(context, princstr, keytab_name, KADM5_ADMIN_SERVICE,
-				&params, KADM5_STRUCT_VERSION,
-				KADM5_API_VERSION_3, NULL, &handle);
-
+int delprinc(krb5_context context, void *handle, char *user) {
+  krb5_error_code retval;
+  krb5_principal princ;
+  int err = 0;
+  
+  retval = krb5_parse_name(context, user, &princ);
   if (retval) {
-    com_err(whoami, retval, "while initializing %s interface", whoami);
-    goto princ_cleanup;
+    err = -1;
+    com_err("krb5_parse_name()", retval, ".");
+    goto cleanup;
+  }
+  retval = kadm5_delete_principal(handle, princ);
+  if (retval) {
+    err = -1;
+    com_err("kadm5_delete_principal()", retval, ".");
+    goto cleanup;
+  }
+  
+ cleanup:
+  krb5_free_principal(context, princ);
+  return err;
+}
+
+int addprinc(krb5_context context, void *handle, char *user, char *pass) {
+  kadm5_principal_ent_rec princ;
+  long mask = 0;
+  krb5_error_code retval;
+  int err = 0;
+  
+  memset(&princ, 0, sizeof(princ));
+  princ.attributes = 0;
+
+  retval = krb5_parse_name(context, user, &(princ.principal));
+  if (retval) {
+    err = -1;
+    com_err("krb5_parse_name()", retval, ".");
+    goto cleanup;
+  }
+  princ.policy = "default";
+  
+  mask |= KADM5_POLICY;
+  mask &= ~KADM5_POLICY_CLR;
+  mask |= KADM5_PRINCIPAL;
+
+  retval = kadm5_create_principal(handle, &princ, mask, pass);
+  if (retval) {
+    err = -1;
+    com_err("kadm5_create_principal()", retval, ".");
+    goto cleanup;
   }
 
- princ_cleanup:
-  krb5_free_principal(context, princ);
-
- cc_cleanup:
-  if ((retval = krb5_cc_close(context, cc)))
-    com_err(whoami, retval, "while closing ccache %s", ccache_name);
+  princ.attributes &= ~KRB5_KDB_DISALLOW_ALL_TIX;
+  mask = KADM5_ATTRIBUTES;
+  
+  retval = kadm5_modify_principal(handle, &princ, mask);
+  if (retval) {
+    err = -1;
+    com_err("kadm5_modify_principal()", retval, ".");
+    goto cleanup;
+  }
 
  cleanup:
-  free(princstr);
-
-  return 0;
+  krb5_free_principal(context, princ.principal);
+  return err;
 }
 
-
-int destroy() {
-  kadm5_ret_t retval;
-
-  retval = kadm5_unlock(handle);
+int main(void) {
+  krb5_context context;
+  void *handle = NULL;
+  
+  if (init(&context, &handle, "/tmp/test.keytab", "test/admin", "LYTCHI.LOCAL") != -1) {
+    addprinc(context, handle, "titi", "pass");
+    delprinc(context, handle, "titi");
+  }
+  kadm5_unlock(handle);
   kadm5_destroy(handle);
-  krb5_klog_close(context);
   krb5_free_context(context);
-
-  return 0;
-}
-
-int main() {
-  init();
-  destroy();
-
-  return 0;
+  return 0; 
 }

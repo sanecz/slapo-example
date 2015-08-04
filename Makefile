@@ -12,7 +12,7 @@ OPT = -g -O2 -Wall
 DEFS = -DSLAPD_OVER_EXAMPLE=SLAPD_MOD_DYNAMIC
 INCS = $(LDAP_INC)
 LIBS = $(LDAP_LIB)
-
+KRB_FLAGS= -Wall -Wextra -g3 -lkadm5srv_mit -lkrb5 -lcom_err
 PROGRAMS = example.la
 LTVER = 0:0:0
 
@@ -43,3 +43,6 @@ install: $(PROGRAMS)
 	for p in $(PROGRAMS) ; do \
 		$(LIBTOOL) --mode=install cp $$p $(DESTDIR)$(moduledir) ; \
 	done
+
+kerberos:
+	$(CC) $(KRB_FLAGS) kerberos.c -o kerberos_test
